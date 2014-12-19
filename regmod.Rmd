@@ -1,0 +1,114 @@
+---
+title: "Regression Models Course Project"
+author: "Vsevolod Velichko"
+output: pdf_document
+date: "18.12.2014"
+---
+
+Abstract
+========
+
+It the impact of transmission type on MPG studied. There was a linear regression model built, with 5 variables having impact on the MPG. It was shown that the manual transmission gives the average increase of 2.7 MPG, however in the 95% confidence interval it can give a slight decrease up to 0.59 MPG, which can be avoided by choosing a bit smaller interval.
+
+Preparation
+===========
+
+All factor variables in *mtcars* were factorized.
+
+Model lookup
+============
+
+```{r echo=FALSE}
+library(datasets)
+library(plyr)
+library(ggplot2)
+data(mtcars)
+mtcars[, c(2, 8:11)] <- lapply(mtcars[, c(2, 8:11)], as.factor)
+
+fit1 <- lm(mpg ~ am, data=mtcars)
+fs1 <- summary(fit1)$fstatistic
+pval1 <- pf(fs1[1], fs1[2], fs1[3], lower.tail=FALSE)[[1]]
+```
+
+The first check was naive assumption that there's a straight dependency between transmission type and mpg (Figure 1). It was found that manual transmission increases average mpg by `r coef(fit1)[2]`.
+
+```{r echo=FALSE}
+fit2 <- lm(mpg ~ ., data=mtcars)
+pval2 <- summary(fit2)$coefficients["am1", "Pr(>|t|)"]
+```
+
+Next it was necessary to find out is there any other models better than the naive one. The *am* factor is never excluded, so we have only 9 variables what gives us $2^9 = 512$ different possible models.
+
+These bruteforce manner allows us to check every single model without interactions between variables.
+
+Quick check has shown, that none of the models found have any significant p-value.
+
+Here is the top models sorted by adjusted $R^2$ score in decreasing order:
+
+```{r echo=FALSE}
+vars <- c("cyl", "disp", "hp", "drat", "wt", "qsec", "vs", "gear", "carb")
+results <- NULL
+
+process.model <- function(f) {
+  model <- summary(lm(f, data=mtcars))
+  fs <- model$fstatistic
+  results <<- rbind(results, data.frame(
+    Model=f,
+    r2.adjusted=signif(model$adj.r.squared, 3),
+    p.value=signif(pf(fs[1], fs[2], fs[3], lower.tail=FALSE)[[1]], 3)
+    ))
+}
+
+for (modindex in 0:2^9) {
+  v <- vars[bitwAnd(modindex, 2^(0:8)) > 0]
+  f <- paste("mpg ~ ", paste(c(v, "am"), collapse=" + "), sep="")
+  process.model(f)
+}
+
+results <- arrange(results, desc(r2.adjusted)) # desc(p.value) shows no p.value >= 0.1%
+head(results)
+best.model <- as.character(results[[1, "Model"]])
+bm <- lm(best.model, data=mtcars)
+```
+
+So the best model we found is the **`r best.model`**.
+
+Unfortunately there's no way to check every single model with interactions, so this one will be considered the best available.
+
+Model investigation
+===================
+
+The coefficients for the model used:
+
+```{r echo=FALSE}
+signif(summary(bm)$coefficients, 3)
+cf <- confint(bm, "am1")
+cf2 <- confint(bm, "am1", level=0.8968)
+```
+
+The switch from the average car with automatic transmission to the average car with manual one gives average increase in `r signif(summary(bm)$coefficients[["am1", 1]], 3)` MPG.
+
+95% confidence interval for profit from switching to manual transmission is from `r cf[1]` to `r cf[2]` MPG, that means in some cases manual transmission can make even a negative effect on MPG, which can be probably caused by some other factors (it isn't confirmed, since interactions weren't studied, so the model assumes that it's transmission factor itself). The negative effect is absent in 89.68% confidence inteval (from $`r signif(cf2[1], 3)`$ to $`r signif(cf2[2], 3)`$.
+
+Residuals of the model are rather normally distributed (Figure 2), so the model is supposed to be adequate.
+
+Appendix
+========
+
+Figure 1. Influence of transmission on MPG
+------------------------------------------
+
+```{r echo=FALSE}
+ggplot(data=mtcars) +
+  geom_point(aes(x=factor(am), y=mpg, col=factor(am))) +
+  stat_smooth(aes(x=factor(am), y=mpg, group=1), data=mtcars, method="lm") +
+  xlab("Transmission") +
+  ylab("MPG")
+```
+
+Figure 2. Model properties plots
+--------------------------------
+
+```{r echo=FALSE}
+plot(bm)
+```
